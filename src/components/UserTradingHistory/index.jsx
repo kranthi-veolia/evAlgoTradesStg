@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { IonPage, IonHeader, IonToolbar, IonTitle, IonContent, IonButtons, IonBackButton, IonCard, IonCardContent, IonText, IonBadge, IonButton  } from '@ionic/react';
 import { collection, query, getDocs, orderBy, where } from "firebase/firestore";
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { db, auth } from "../../firebaseConfig";import moment from 'moment';
+import { db, auth } from "../../firebaseConfig";
+// import moment from 'moment';
 import { useLocation } from 'react-router-dom';
 const convertTimestampToDate = (timestamp) => {
     if (!timestamp) return '';
@@ -35,7 +36,6 @@ const UserTradingHistory = () => {
                 // const todaysGain = (stockHistory.reduce((acc, trade) => acc + Number(trade.gain), 0)/stockHistory.length)*100;
                 setTotalTrades(stockHistory.length);
                 // setTotalGain(todaysGain);
-                console.log(stockHistory);
             } catch (error) {
                 console.error("Error fetching stock history: ", error.message);
                 // Guide to create the required Firestore index
@@ -47,8 +47,8 @@ const UserTradingHistory = () => {
     }, [user]);
 
     function calculateDateDifference(startDate, endDate) {
-        const start = moment(startDate);
-        const end = moment(endDate);
+        const start = new Date(startDate);
+        const end = new Date(endDate);
       
         if (!start.isValid() || !end.isValid()) {
           return 'Invalid date(s)';

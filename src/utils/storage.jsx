@@ -49,6 +49,8 @@ export async function getAuthToken() {
 export async function clearAuthData() {
   await removeData(AUTH_KEYS.USER_INFO);
   await removeData(AUTH_KEYS.AUTH_TOKEN);
+  await removeData('approvalStatus');
+  await removeData('customUser');
 }
 
 export async function isLoggedIn() {

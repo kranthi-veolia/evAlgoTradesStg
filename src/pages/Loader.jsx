@@ -18,7 +18,7 @@ const StockCardSkeleton = () => {
   return (
     <div className="stock-skeleton-container">
       {/* First Stock Card */}
-      <IonCard className="stock-card">
+      <IonCard className="stock-card-skeleton">
         <IonCardContent>
           {/* Header with Stock Symbol and Chart Icon */}
           <IonRow className="stock-header">
@@ -87,7 +87,7 @@ const StockCardSkeleton = () => {
       </IonCard>
 
       {/* Second Stock Card */}
-      <IonCard className="stock-card">
+      <IonCard className="stock-card-skeleton">
         <IonCardContent>
           {/* Header with Stock Symbol and Chart Icon */}
           <IonRow className="stock-header">

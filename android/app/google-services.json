@@ -1,46 +1,47 @@
 {
-    "project_info": {
-      "project_number": "703086075500",
-      "project_id": "evalgotradingproj",
-      "storage_bucket": "evalgotradingproj.firebasestorage.app"
-    },
-    "client": [
-      {
-        "client_info": {
-          "mobilesdk_app_id": "1:703086075500:android:070256d36995fd8a950249",
-          "android_client_info": {
-            "package_name": "io.ionic.starter"
+  "project_info": {
+    "project_number": "703086075500",
+    "project_id": "evalgotradingproj",
+    "storage_bucket": "evalgotradingproj.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:703086075500:android:c4ad97ab95a2dae6950249",
+        "android_client_info": {
+          "package_name": "com.matheval.trades"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "703086075500-ecml6mfktm4dcr8162rva6pti4el8os9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.matheval.trades",
+            "certificate_hash": "9301a4ac691c24e2c620e09c2a58cb81f8bf73ed"
           }
         },
-        "oauth_client": [
-          {
-            "client_id": "703086075500-1kmjmfnan0f2c3j6j68590j59i6bta2s.apps.googleusercontent.com",
-            "client_type": 3
-          }
-        ],
-        "api_key": [
-          {
-            "current_key": "AIzaSyA145J18XVO7Xrmkun8cCwayzCvMVllQHQ"
-          }
-        ],
-        "services": {
-          "appinvite_service": {
-            "other_platform_oauth_client": [
-              {
-                "client_id": "703086075500-1kmjmfnan0f2c3j6j68590j59i6bta2s.apps.googleusercontent.com",
-                "client_type": 3
-              },
-              {
-                "client_id": "703086075500-eiuioe85pkicma7sov2olsk7266mtskh.apps.googleusercontent.com",
-                "client_type": 2,
-                "ios_info": {
-                  "bundle_id": "io.ionic.starter"
-                }
-              }
-            ]
-          }
+        {
+          "client_id": "703086075500-1kmjmfnan0f2c3j6j68590j59i6bta2s.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCTCg8enF5yTPgp-toa5beC7hIBsjrK2Wk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "703086075500-1kmjmfnan0f2c3j6j68590j59i6bta2s.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
-    ],
-    "configuration_version": "1"
-  }
+    }
+  ],
+  "configuration_version": "1"
+}

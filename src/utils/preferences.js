@@ -2,644 +2,602 @@ import { Preferences } from '@capacitor/preferences';
 import { auth, db } from '../firebaseConfig';
 import { doc, setDoc, getDoc, collection, query, getDocs, where, Timestamp, orderBy } from "firebase/firestore";
 
-// Get and store custom user data from Firestore
-export const getAndStoreCustomUser = async () => {
-    try {
-        const customUserPref = await Preferences.get({ key: 'customUser' });
-        if (customUserPref.value) return JSON.parse(customUserPref.value);
-        const userPref = await Preferences.get({ key: 'user_info' });
-        if (!userPref) return null;
-        const userId = JSON.parse(userPref.value).uid;
-        console.log('User ID:', userId);
+// Enhanced helper functions for better performance
+const handleError = (functionName, error) => {
+  console.error(`Error in ${functionName}:`, error);
+  return null;
+};
 
-        const userDoc = await getDoc(doc(db, 'customUser', userId));
-        if (userDoc.exists()) {
-            const userData = userDoc.data();
-            console.log('User data:', userData);
-            await setStoredApprovalStatus(userData.approvalStatus);
-            await Preferences.set({
-                key: `customUser`,
-                value: JSON.stringify(userData)
-            });
-            return userData;
+// Optimized timestamp handling
+const processTimestamps = (item, forStorage = true) => {
+  if (!item) return item;
+  const result = { ...item };
+  
+  // Define timestamp fields to process
+  const timestampFields = ['start', 'end', 'detected_at', 'lastUpdated'];
+  
+  if (forStorage) {
+    // Convert timestamps to ISO strings for storage
+    timestampFields.forEach(field => {
+      if (result[field] && typeof result[field] !== 'string') {
+        const dateField = field === 'detected_at' ? 'detected_atDate' : 
+                          field === 'lastUpdated' ? 'lastUpdatedDate' : 
+                          `${field}Date`;
+        
+        result[dateField] = result[field].seconds ? 
+          new Date(result[field].seconds * 1000).toISOString() : 
+          new Date(result[field]).toISOString();
+          
+        if (field !== 'detected_at' && field !== 'lastUpdated') {
+          delete result[field]; // Remove original field if it's not needed
         }
-        return null;
-    } catch (error) {
-        console.error('Error getting/storing custom user:', error);
-        return null;
+      }
+    });
+  } else {
+    // Convert stored strings back to Date objects
+    timestampFields.forEach(field => {
+      const dateField = field === 'detected_at' ? 'detected_atDate' : 
+                        field === 'lastUpdated' ? 'lastUpdatedDate' : 
+                        `${field}Date`;
+      
+      if (result[dateField]) {
+        result[field] = new Date(result[dateField]);
+        delete result[dateField]; // Clean up date fields
+      }
+    });
+    
+    // Handle special case
+    if (result.start && typeof result.start === 'string') {
+      result.start = new Date(result.start);
     }
-};
-// Get stored approval status
-export const getStoredApprovalStatus = async () => {
-  try {
-    const { value } = await Preferences.get({ key: `approvalStatus` });
-    return value ? parseInt(value) : null;
-  } catch (error) {
-    console.error('Error getting stored approval status:', error);
-    return null;
   }
+  
+  return result;
 };
 
-// Set stored approval status
-export const setStoredApprovalStatus = async (status) => {
+// Batch process multiple items
+const batchProcessTimestamps = (data, forStorage = true) => {
+  if (!data || !Array.isArray(data)) return data;
+  return data.map(item => processTimestamps(item, forStorage));
+};
+
+// Enhanced cache validation
+const isCollectionUpdated = (prevData, newData, collectionName) => {
+  if (!prevData || !newData) return true;
+  
+  const prevItem = prevData.find(p => p.colName === collectionName);
+  const newItem = newData.find(n => n.colName === collectionName);
+  
+  if (!prevItem || !newItem || !prevItem.lastUpdatedDate || !newItem.lastUpdatedDate) return true;
+  
+  return new Date(prevItem.lastUpdatedDate).getTime() !== new Date(newItem.lastUpdatedDate).getTime();
+};
+
+// Universal data storage function
+export const storeData = async (key, data) => {
   try {
     await Preferences.set({
-      key: `approvalStatus`,
-      value: status.toString()
+      key,
+      value: JSON.stringify(data)
     });
+    return true;
   } catch (error) {
-    console.error('Error setting stored approval status:', error);
+    handleError(`storeData:${key}`, error);
+    return false;
   }
 };
 
-// Helper function to convert Firestore timestamps to strings
-const convertTimestampForStorage = (data) => {
-  if (!data) return data;
-  
-  // Deep clone the object to avoid modifying the original
-  const clonedData = JSON.parse(JSON.stringify(data));
-  
-  // Convert each object's timestamps to ISO strings
-  return clonedData.map(item => {
-    // Convert timestamp fields to ISO strings
-    if (item.start && typeof item.start !== 'string') {
-      item.start = item.start.seconds ? new Date(item.start.seconds * 1000).toISOString() : new Date(item.start).toISOString();
-    }
-    if (item.detected_at && typeof item.detected_at !== 'string') {
-      item.detected_at = item.detected_at.seconds ? new Date(item.detected_at.seconds * 1000).toISOString() : new Date(item.detected_at).toISOString();
-    }
-    
-    return item;
-  });
-};
-
-// Helper function to convert timestamp strings back to Date objects
-const convertTimestampFromStorage = (data) => {
-  if (!data) return data;
-  
-  return data.map(item => {
-    if (item.start && typeof item.start === 'string') {
-      item.start = new Date(item.start);
-      item.detected_atDate = new Date(item.start);
-    }
-    if (item.detected_at && typeof item.detected_at === 'string') {
-      item.detected_at = new Date(item.detected_at);
-    }
-    
-    return item;
-  });
-};
-
-// Get and store active trades from Firestore
-export const getAndStoreActiveTrades = async (forceRefresh = false) => {
+// Universal data retrieval function
+export const retrieveData = async (key) => {
   try {
-    // Check if we have cached data and it's not a forced refresh
-    // if (!forceRefresh) {
-      const cachedTrades = await getStoredActiveTrades();
-      if (cachedTrades && cachedTrades.length > 0) {
-        console.log('Using cached active trades');
-        return cachedTrades;
-      }
-    // }
-    
-    // Fetch from Firestore if no cached data or forced refresh
-    console.log('Fetching active trades from Firestore');
-    const activeTradesQuery = query(collection(db, "activeTrades"));
-    const activeTradesSnapshot = await getDocs(activeTradesQuery);
-    
-    const activeTrades = activeTradesSnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-    console.log('Active trades:', activeTrades);
-    // Convert timestamps before storing
-    const processedTrades = convertTimestampForStorage(activeTrades);
-    
-    // Store in preferences
-    await setStoredActiveTrades(processedTrades);
-    
-    // Return the original data with proper date objects
-    return activeTrades;
-  } catch (error) {
-    console.error('Error fetching/storing active trades:', error);
-    return [];
-  }
-};
-
-// Get active trades from storage
-export const getStoredActiveTrades = async () => {
-  try {
-    const { value } = await Preferences.get({ key: 'activeTrades' });
-    if (!value) return null;
-    
-    const parsedData = JSON.parse(value);
-    return convertTimestampFromStorage(parsedData);
-  } catch (error) {
-    console.error('Error getting stored active trades:', error);
-    return null;
-  }
-};
-
-// Get user active trades from storage
-export const getStoredUserActiveTrades = async () => {
-    try {
-        const userPref = await Preferences.get({ key: 'user_info' });
-        if (!userPref) return null;
-        const userId = JSON.parse(userPref.value).uid;
-        console.log('User ID:', userId);
-      const { value } = await Preferences.get({ key: 'activeTrades' });
-      if (!value) return null;
-    const parsedData = JSON.parse(value);
-    console.log('Parsed data:', parsedData);
-    // Check if user exists in userList and filter trades for this user's ID
-    const userTrades = parsedData.filter(trade => {
-        const userList = trade.usersList || [];
-        return userList.includes(userId);
-    });
-    return convertTimestampFromStorage(userTrades);
-    } catch (error) {
-      console.error('Error getting stored active trades:', error);
-      return null;
-    }
-  };
-// Store active trades in preferences
-export const setStoredActiveTrades = async (trades) => {
-  try {
-    await Preferences.set({
-      key: 'activeTrades',
-      value: JSON.stringify(trades)
-    });
-    // Also store the last update timestamp
-    // await Preferences.set({
-    //   key: 'activeTradesLastUpdate',
-    //   value: new Date().toISOString()
-    // });
-  } catch (error) {
-    console.error('Error setting active trades in storage:', error);
-  }
-};
-
-// Get and store stock snapshots from Firestore
-export const getAndStoreStockSnapshots = async (forceRefresh = false) => {
-  try {
-    // Check if we have cached data and it's not a forced refresh
-    // if (!forceRefresh) {
-      const cachedSnapshots = await getStoredStockSnapshots();
-      if (cachedSnapshots) {
-        console.log('Using cached stock snapshots');
-        return cachedSnapshots;
-      }
-    // }
-    
-    // Fetch from Firestore if no cached data or forced refresh
-    console.log('Fetching stock snapshots from Firestore');
-    const stockSnapshotQuery = query(collection(db, "stockSnapshot"), where("symbol", "==", "ALL"));
-    const stockSnapshotSnapshot = await getDocs(stockSnapshotQuery);
-    
-    if (stockSnapshotSnapshot.empty) {
-      return null;
-    }
-    
-    const stockSnapshots = stockSnapshotSnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }))[0];
-    
-    // Store in preferences
-    await setStoredStockSnapshots(stockSnapshots);
-    
-    return stockSnapshots;
-  } catch (error) {
-    console.error('Error fetching/storing stock snapshots:', error);
-    return null;
-  }
-};
-
-// Get stock snapshots from storage
-export const getStoredStockSnapshots = async () => {
-  try {
-    const { value } = await Preferences.get({ key: 'stockSnapshots' });
+    const { value } = await Preferences.get({ key });
     return value ? JSON.parse(value) : null;
   } catch (error) {
-    console.error('Error getting stored stock snapshots:', error);
-    return null;
+    return handleError(`retrieveData:${key}`, error);
   }
 };
 
-// Store stock snapshots in preferences
-export const setStoredStockSnapshots = async (snapshots) => {
+// Optimized update tracker for all collections
+export const getAndStoreLastUpdatedAt = async () => {
   try {
-    await Preferences.set({
-      key: 'stockSnapshots',
-      value: JSON.stringify(snapshots)
-    });
-    // Also store the last update timestamp
-    await Preferences.set({
-      key: 'stockSnapshotsLastUpdate',
-      value: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error setting stock snapshots in storage:', error);
-  }
-};
-
-// Helper function to check if cached data is stale (older than specified minutes)
-export const isCacheStale = async (key, minutes = 5) => {
-  try {
-    const { value } = await Preferences.get({ key: `${key}LastUpdate` });
-    if (!value) return true;
-    
-    const lastUpdate = new Date(value);
-    const now = new Date();
-    const diffMs = now - lastUpdate;
-    const diffMinutes = diffMs / (1000 * 60);
-    
-    return diffMinutes > minutes;
-  } catch (error) {
-    console.error(`Error checking if ${key} cache is stale:`, error);
-    return true; // If there's an error, assume cache is stale
-  }
-};
-
-// ------------ LAST UPDATED AT ------------ //
-// Get and store lastUpdatedAt data
-export const getAndStoreLastUpdatedAt = async (forceRefresh = false) => {
-  try {
-    // if (!forceRefresh) {
-      const cachedData = await getStoredLastUpdatedAt();
-      if (cachedData) {
-        console.log('Using cached lastUpdatedAt');
-        return cachedData;
-      }
-    // }
-    
+    // Always fetch latest updates from Firestore to ensure accuracy
     console.log('Fetching lastUpdatedAt from Firestore');
-    // Query the lastUpdatedAt collection - assuming there's a single document or we want the latest one
-    const lastUpdatedQuery = query(collection(db, "lastUpdatedAt"));
-    const lastUpdatedSnapshot = await getDocs(lastUpdatedQuery);
+    const lastUpdatedSnapshot = await getDocs(query(collection(db, "lastUpdatedAt")));
     
-    if (lastUpdatedSnapshot.empty) {
-      return null;
-    }
+    if (lastUpdatedSnapshot.empty) return null;
     
-    const lastUpdatedData = {
-      id: lastUpdatedSnapshot.docs[0].id,
-      ...lastUpdatedSnapshot.docs[0].data()
-    };
-    // Process timestamps for storage
+    const lastUpdatedData = lastUpdatedSnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    
+    const currentData = await retrieveData('lastUpdatedAt');
+    
+    // Process timestamps for new data
     const processedData = lastUpdatedData.map(item => {
-        const processed = { ...item };
-        // Process any timestamp fields
-        if (processed.lastUpdated && typeof processed.lastUpdated !== 'string') {
-            processed.lastUpdatedDate = processed.lastUpdated.seconds ? new Date(processed.lastUpdated.seconds * 1000).toISOString() : new Date(processed.lastUpdated).toISOString();
-            // delete processed.end; // Remove the original timestamp
-        }
-        return processed;
-        });
-    // Store in preferences
-    await setStoredLastUpdatedAt(processedData);
-    
-    return processedData;
-  } catch (error) {
-    console.error('Error fetching/storing lastUpdatedAt:', error);
-    return null;
-  }
-};
-
-export const getStoredLastUpdatedAt = async () => {
-  try {
-    const { value } = await Preferences.get({ key: 'lastUpdatedAt' });
-    return value ? JSON.parse(value) : null;
-  } catch (error) {
-    console.error('Error getting stored lastUpdatedAt:', error);
-    return null;
-  }
-};
-
-export const setStoredLastUpdatedAt = async (data) => {
-  try {
-    await Preferences.set({
-      key: 'lastUpdatedAt',
-      value: JSON.stringify(data)
-    });
-    // await Preferences.set({
-    //   key: 'lastUpdatedAtLastUpdate',
-    //   value: new Date().toISOString()
-    // });
-  } catch (error) {
-    console.error('Error storing lastUpdatedAt:', error);
-  }
-};
-
-// ------------ STOCK HISTORY ------------ //
-// Get and store stockHistory data
-export const getAndStoreStockHistory = async (days = 5, forceRefresh = false) => {
-  try {
-    const cacheKey = 'stockHistory_all';
-    
-    // if (!forceRefresh) {
-      const cachedData = await getStoredStockHistory();
-      if (cachedData) {
-        // console.log(`Using cached stock history for ${symbol || 'all symbols'}`);
-        return cachedData;
-      }
-    // }
-    
-    // console.log(`Fetching stock history for ${symbol || 'all symbols'} from Firestore`);
-    
-    // Calculate date cutoff
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - days);
-    const cutoffTimestamp = Timestamp.fromDate(cutoffDate);
-    
-    // Build the query based on whether we want one symbol or all
-    // let stockHistoryQuery;
-    // if (symbol) {
-    //   stockHistoryQuery = query(
-    //     collection(db, "stockHistory"),
-    //     where("symbol", "==", symbol),
-    //     where("end", ">=", cutoffTimestamp),
-    //     orderBy("end", "desc")
-    //   );
-    // } else {
-      stockHistoryQuery = query(
-        collection(db, "stockHistory"),
-        where("end", ">=", cutoffTimestamp),
-        orderBy("end", "desc")
-      );
-    // }
-    
-    const stockHistorySnapshot = await getDocs(stockHistoryQuery);
-    
-    if (stockHistorySnapshot.empty) {
-      return [];
-    }
-    
-    const stockHistoryData = stockHistorySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-    
-    // Process timestamps for storage
-    const processedData = stockHistoryData.map(item => {
       const processed = { ...item };
-      // Process any timestamp fields
-      if (processed.end && typeof processed.end !== 'string') {
-        processed.endDate = processed.end.seconds ? new Date(processed.end.seconds * 1000).toISOString() : new Date(processed.end).toISOString();
-        delete processed.end; // Remove the original timestamp
-      }
-      if (processed.start && typeof processed.start !== 'string') {
-        processed.startDate = processed.start.seconds ? new Date(processed.start.seconds * 1000).toISOString() : new Date(processed.start).toISOString();
-        delete processed.start; // Remove the original timestamp
-      }
-      return processed;
-    });
-    
-    // Store in preferences
-    await setStoredStockHistory(processedData);
-    
-    return stockHistoryData;
-  } catch (error) {
-    console.error(`Error fetching/storing stock history for 'all symbols':`, error);
-    return [];
-  }
-};
-
-export const getStoredStockHistory = async () => {
-  try {
-    // const cacheKey = symbol ? `stockHistory_${symbol}` : 'stockHistory_all';
-    const { value } = await Preferences.get({ key: 'stockHistory_all' });
-    
-    if (!value) return null;
-    
-    const parsedData = JSON.parse(value);
-    
-    // Convert stored dates back to Date objects
-    return parsedData.map(item => {
-      const processed = { ...item };
-      if (processed.endDate) {
-        processed.end = new Date(processed.endDate);
-        delete processed.endDate;
-      }
-      if (processed.startDate) {
-        processed.start = new Date(processed.startDate);
-        delete processed.startDate;
-      }
-      return processed;
-    });
-  } catch (error) {
-    console.error(`Error getting stored stock history for 'all symbols':`, error);
-    return null;
-  }
-};
-
-export const setStoredStockHistory = async (data, symbol = null) => {
-  try {
-    const cacheKey = 'stockHistory_all';
-    await Preferences.set({
-      key: cacheKey,
-      value: JSON.stringify(data)
-    });
-    await Preferences.set({
-      key: `${cacheKey}LastUpdate`,
-      value: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error(`Error storing stock history for  'all symbols':`, error);
-  }
-};
-
-// ------------ USER PREFERENCES ------------ //
-// Get and store userPref data for a specific user
-export const getAndStoreUserPref = async (userId, forceRefresh = false) => {
-  if (!userId) {
-    console.error('Cannot fetch user preferences: no userId provided');
-    return null;
-  }
-  
-  try {
-    if (!forceRefresh) {
-      const cachedData = await getStoredUserPref(userId);
-      if (cachedData) {
-        console.log(`Using cached user preferences for user ${userId}`);
-        return cachedData;
-      }
-    }
-    
-    console.log(`Fetching user preferences for user ${userId} from Firestore`);
-    const userPrefQuery = query(
-      collection(db, "userPref"),
-      where("userID", "==", userId)
-    );
-    
-    const userPrefSnapshot = await getDocs(userPrefQuery);
-    
-    if (userPrefSnapshot.empty) {
-      return null;
-    }
-    
-    // Assuming each user has one preference document
-    const userPrefData = {
-      id: userPrefSnapshot.docs[0].id,
-      ...userPrefSnapshot.docs[0].data()
-    };
-    
-    // Store in preferences
-    await setStoredUserPref(userId, userPrefData);
-    
-    return userPrefData;
-  } catch (error) {
-    console.error(`Error fetching/storing user preferences for user ${userId}:`, error);
-    return null;
-  }
-};
-
-export const getStoredUserPref = async (userId) => {
-  try {
-    const { value } = await Preferences.get({ key: `userPref_${userId}` });
-    return value ? JSON.parse(value) : null;
-  } catch (error) {
-    console.error(`Error getting stored user preferences for user ${userId}:`, error);
-    return null;
-  }
-};
-
-export const setStoredUserPref = async (userId, data) => {
-  try {
-    await Preferences.set({
-      key: `userPref_${userId}`,
-      value: JSON.stringify(data)
-    });
-    await Preferences.set({
-      key: `userPref_${userId}LastUpdate`,
-      value: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error(`Error storing user preferences for user ${userId}:`, error);
-  }
-};
-
-// ------------ USER STATS ------------ //
-// Get and store userStats data for a specific user
-export const getAndStoreUserStats = async (forceRefresh = false) => {
-    
-    const userPref = await Preferences.get({ key: 'user_info' });
-    if (!userPref) return null;
-    const userId = JSON.parse(userPref.value).uid;
-  
-  try {
-    // if (!forceRefresh) {
-      const cachedData = await getStoredUserStats(userId);
-      if (cachedData) {
-        console.log(`Using cached user stats for user ${userId}`);
-        return cachedData;
-      }
-    // }
-    
-    console.log(`Fetching user stats for user ${userId} from Firestore`);
-    const userStatsQuery = query(
-      collection(db, "userStats"),
-      where("userID", "==", userId)
-    );
-    
-    const userStatsSnapshot = await getDocs(userStatsQuery);
-    
-    if (userStatsSnapshot.empty) {
-      return null;
-    }
-    
-    // Process all user stats documents (might have multiple entries)
-    const userStatsData = userStatsSnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    }));
-    
-    // Process timestamps for storage
-    const processedData = userStatsData.map(item => {
-      const processed = { ...item };
-      // Convert any timestamp fields
       if (processed.lastUpdated && typeof processed.lastUpdated !== 'string') {
-        processed.lastUpdated = processed.lastUpdated.seconds ? 
-          new Date(processed.lastUpdated.seconds*1000).toISOString() : 
+        processed.lastUpdatedDate = processed.lastUpdated.seconds ? 
+          new Date(processed.lastUpdated.seconds * 1000).toISOString() : 
           new Date(processed.lastUpdated).toISOString();
       }
       return processed;
     });
     
-    // Store in preferences
-    await setStoredUserStats(processedData);
+    // Store current data as previous for comparison next time
+    if (currentData) await storeData('prevLastUpdatedAt', currentData);
     
-    return userStatsData;
+    // Store new data as current
+    await storeData('lastUpdatedAt', processedData);
+    
+    return processedData;
   } catch (error) {
-    console.error(`Error fetching/storing user stats for user:`, error);
-    return null;
+    return handleError('getAndStoreLastUpdatedAt', error);
   }
 };
 
-export const getStoredUserStats = async () => {
+export const getStoredPreviousLastUpdatedAt = async () => retrieveData('prevLastUpdatedAt');
+export const getStoredLastUpdatedAt = async () => retrieveData('lastUpdatedAt');
+
+// Optimized collection update detector
+export const detectCollectionUpdates = (prevData, newData) => {
+  if (!prevData || !newData) return {};
+  
+  const collections = [...new Set([
+    ...prevData.map(item => item.colName),
+    ...newData.map(item => item.colName)
+  ])];
+  
+  return collections.reduce((updates, colName) => {
+    updates[colName] = isCollectionUpdated(prevData, newData, colName);
+    return updates;
+  }, {});
+};
+
+// Optimized generic collection updater
+export const updateCollectionIfNeeded = async (collectionName, fetchFreshDataFn, options = {}) => {
   try {
-    const { value } = await Preferences.get({ key: `userStats` });
+    const lastUpdatedAtData = await getStoredLastUpdatedAt();
+    const previousUpdatedAtData = await getStoredPreviousLastUpdatedAt();
     
-    if (!value) return null;
+    // If this is the first run or updates are detected, fetch fresh data
+    if (isCollectionUpdated(previousUpdatedAtData, lastUpdatedAtData, collectionName)) {
+      console.log(`${collectionName} needs updating, fetching fresh data`);
+      return await fetchFreshDataFn(options);
+    }
     
-    const parsedData = JSON.parse(value);
+    console.log(`${collectionName} is up to date`);
+    return null; // No update needed
+  } catch (error) {
+    return handleError(`updateCollectionIfNeeded:${collectionName}`, error);
+  }
+};
+
+// Get and store custom user data from Firestore
+export const getAndStoreCustomUser = async () => {
+  try {
+    // Quick check for cached data
+    const customUserPref = await retrieveData('customUser');
+    if (customUserPref) return customUserPref;
     
-    // Convert stored dates back to Date objects
-    return parsedData.map(item => {
-      const processed = { ...item };
-      if (processed.lastUpdated) {
-        processed.timestamp = new Date(processed.lastUpdated);
-        delete processed.lastUpdated;
+    // Fetch user ID
+    const userPref = await retrieveData('user_info');
+    if (!userPref?.uid) return null;
+    
+    // Fetch from Firestore
+    const userDoc = await getDoc(doc(db, 'customUser', userPref.uid));
+    if (!userDoc.exists()) return null;
+    
+    const userData = userDoc.data();
+    
+    // Store approval status and user data
+    if (userData.approvalStatus) {
+      await storeData('approvalStatus', userData.approvalStatus.toString());
+    }
+    
+    await storeData('customUser', userData);
+    return userData;
+  } catch (error) {
+    return handleError('getAndStoreCustomUser', error);
+  }
+};
+
+// Approval status helpers
+export const getStoredApprovalStatus = async () => {
+  const value = await retrieveData('approvalStatus');
+  return value ? parseInt(value) : null;
+};
+
+export const setStoredApprovalStatus = async (status) => {
+  return storeData('approvalStatus', status.toString());
+};
+
+// Enhanced stock history management with incremental updates
+export const getAndStoreStockHistory = async (days = 5) => {
+  try {
+    const lastUpdatedAtData = await getStoredLastUpdatedAt();
+    const previousUpdatedAtData = await getStoredPreviousLastUpdatedAt();
+    
+    
+    // Get existing data 
+    const existingHistory = await retrieveData('stockHistory_all');
+    console.log('Existing stock history:', existingHistory);
+    
+    // If no updates and we have cached data, return it
+    if (!isCollectionUpdated(previousUpdatedAtData, lastUpdatedAtData, 'stockHistory') && existingHistory?.length > 0) {
+      return existingHistory.map(item => processTimestamps(item, false));
+    }
+    
+    // Determine what to fetch
+    let newestTimestamp = null;
+    let stockQuery = null;
+    
+    if (existingHistory?.length > 0) {
+      // Find newest timestamp in cached data to fetch only newer data
+      const sorted = [...existingHistory].sort((a, b) => {
+        return new Date(b.endDate || 0) - new Date(a.endDate || 0);
+      });
+      
+      if (sorted[0]?.endDate) {
+        newestTimestamp = new Date(sorted[0].endDate);
+        console.log('Fetching stock history since:', newestTimestamp);
+        
+        // Query for only newer data
+        stockQuery = query(
+          collection(db, "stockHistory"),
+          where("end", ">", Timestamp.fromDate(newestTimestamp)),
+          orderBy("end", "desc")
+        );
       }
-      return processed;
+    }
+    
+    // If no valid timestamp, fetch based on days
+    if (!stockQuery) {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - days);
+      
+      stockQuery = query(
+        collection(db, "stockHistory"),
+        where("end", ">=", Timestamp.fromDate(cutoffDate)),
+        orderBy("end", "desc")
+      );
+    }
+    
+    // Execute query
+    const stockHistorySnapshot = await getDocs(stockQuery);
+    
+    if (stockHistorySnapshot.empty && existingHistory) {
+      return existingHistory.map(item => processTimestamps(item, false));
+    }
+    
+    // Process new data
+    const newData = stockHistorySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    
+    // Process for storage
+    const processedNewData = batchProcessTimestamps(newData, true);
+    
+    // Combine with existing data, removing duplicates
+    const combinedData = existingHistory ? 
+      [...processedNewData, ...existingHistory.filter(existing => 
+        !processedNewData.some(newItem => newItem.id === existing.id)
+      )] : 
+      processedNewData;
+    
+    // Sort by end date
+    const sortedData = combinedData.sort((a, b) => {
+      const dateA = a.endDate ? new Date(a.endDate) : new Date(0);
+      const dateB = b.endDate ? new Date(b.endDate) : new Date(0);
+      return dateB - dateA;
     });
+    
+    // Store combined data
+    await storeData('stockHistory_all', sortedData);
+    
+    // Return in application format
+    return sortedData.map(item => processTimestamps(item, false));
   } catch (error) {
-    console.error(`Error getting stored user stats for user:`, error);
-    return null;
+    const fallback = await retrieveData('stockHistory_all');
+    return fallback ? 
+      fallback.map(item => processTimestamps(item, false)) : 
+      handleError('getAndStoreStockHistory', error) || [];
   }
 };
 
-export const setStoredUserStats = async (data) => {
+// Enhanced user-specific stock history management with incremental updates
+export const getAndStoreUserStockHistory = async (days = 7) => {
   try {
-    await Preferences.set({
-      key: `userStats`,
-      value: JSON.stringify(data)
+    // Get user info first
+    const userInfo = await retrieveData('user_info');
+    if (!userInfo?.uid) {
+      console.log('No user ID found');
+      return [];
+    }
+
+    // Check for updates
+    const lastUpdatedAtData = await getStoredLastUpdatedAt();
+    const previousUpdatedAtData = await getStoredPreviousLastUpdatedAt();
+    
+    // Get existing user-specific data
+    const existingHistory = await retrieveData(`stockHistory_user_${userInfo.uid}`);
+    // console.log('Existing user stock history:', existingHistory, lastUpdatedAtData);
+    console.log('Existing user stock history:', existingHistory);
+    // If no updates and we have cached data, return it
+    if (!isCollectionUpdated(previousUpdatedAtData, lastUpdatedAtData, 'stockHistory') && existingHistory?.length > 0) {
+      return existingHistory.map(item => processTimestamps(item, false));
+    }
+    // Determine what to fetch
+    let newestTimestamp = null;
+    let baseQuery = collection(db, "stockHistory");
+    console.log('Collection needs updating, fetching fresh data', existingHistory?.length, 0>0);
+    
+    if (existingHistory?.length > 0) {
+      // Find newest timestamp in cached data
+      const sorted = [...existingHistory].sort((a, b) => {
+        return new Date(b.endDate || 0) - new Date(a.endDate || 0);
+      });
+      console.log('Sorted existing history:', sorted);
+      if (sorted[0]?.endDate) {
+        newestTimestamp = new Date(sorted[0].endDate);
+        console.log('Fetching user stock history since:', newestTimestamp);
+        
+        // Query for only newer data with user filter
+        baseQuery = query(
+          baseQuery,
+          where("usersList", "array-contains", userInfo.uid),
+          where("end", ">", Timestamp.fromDate(newestTimestamp)),
+          orderBy("end", "desc")
+        );
+      }
+    } else {
+      // If no existing data, fetch based on days
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - days);
+      console.log('Fetching user stock history since:', cutoffDate, Timestamp.fromDate(cutoffDate));
+      baseQuery = query(
+        baseQuery,
+        where("usersList", "array-contains", userInfo.uid),
+        where("end", ">=", Timestamp.fromDate(cutoffDate)),
+        orderBy("end", "desc")
+      );
+    }
+    
+    // Execute query
+    const stockHistorySnapshot = await getDocs(baseQuery);
+    console.log('Stock history snapshot:', stockHistorySnapshot.empty, existingHistory);
+    
+    if (stockHistorySnapshot.empty && existingHistory) {
+      return existingHistory.map(item => processTimestamps(item, false));
+    }
+    
+    // Process new data
+    const newData = stockHistorySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    
+    // Process for storage
+    const processedNewData = batchProcessTimestamps(newData, true);
+    
+    // Combine with existing data, removing duplicates
+    const combinedData = existingHistory ? 
+      [...processedNewData, ...existingHistory.filter(existing => 
+        !processedNewData.some(newItem => newItem.id === existing.id)
+      )] : 
+      processedNewData;
+    
+    // Sort by end date
+    const sortedData = combinedData.sort((a, b) => {
+      const dateA = a.endDate ? new Date(a.endDate) : new Date(0);
+      const dateB = b.endDate ? new Date(b.endDate) : new Date(0);
+      return dateB - dateA;
     });
-    // await Preferences.set({
-    //   key: `userStatsLastUpdate`,
-    //   value: new Date().toISOString()
-    // });
+    
+    // Store combined data with user-specific key
+    await storeData(`stockHistory_user_${userInfo.uid}`, sortedData);
+    
+    // Return in application format
+    return sortedData.map(item => processTimestamps(item, false));
   } catch (error) {
-    console.error(`Error storing user stats for user:`, error);
+    const userInfo = await retrieveData('user_info');
+    const fallback = await retrieveData(`stockHistory_user_${userInfo?.uid}`);
+    return fallback ? 
+      fallback.map(item => processTimestamps(item, false)) : 
+      handleError('getAndStoreUserStockHistory', error) || [];
   }
 };
 
-// ------------ UTILITY FUNCTIONS ------------ //
-// Get all cached data for a specific user
-export const getAllUserCachedData = async (userId) => {
+
+export const getStoredStockHistory = async () => {
+  const data = await retrieveData('stockHistory_all');
+  return data ? data.map(item => processTimestamps(item, false)) : null;
+};
+
+// Optimized active trades handling
+export const getAndStoreActiveTrades = async () => {
   try {
-    const [userPref, userStats, activeTrades, stockSnapshots, stockHistory] = await Promise.all([
-    //   getStoredUserPref(userId),
-      getStoredUserStats(userId),
+    // Ensure stock history is up to date first (dependency)
+    await getAndStoreStockHistory();
+    
+    // Check for updates
+    const shouldUpdate = await updateCollectionIfNeeded('activeTrades', async () => true);
+    if (!shouldUpdate) {
+      const cachedData = await retrieveData('activeTrades');
+      if (cachedData) return cachedData.map(item => processTimestamps(item, false));
+    }
+    
+    // Fetch fresh data
+    console.log('Fetching fresh active trades from Firestore');
+    const activeTradesSnapshot = await getDocs(query(collection(db, "activeTrades")));
+    
+    if (activeTradesSnapshot.empty) return [];
+    
+    // Process data
+    const activeTrades = activeTradesSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    
+    // Store processed data
+    const processedTrades = batchProcessTimestamps(activeTrades, true);
+    await storeData('activeTrades', processedTrades);
+    
+    return activeTrades;
+  } catch (error) {
+    // Return cached data as fallback
+    const cachedData = await retrieveData('activeTrades');
+    return cachedData ? 
+      cachedData.map(item => processTimestamps(item, false)) : 
+      handleError('getAndStoreActiveTrades', error) || [];
+  }
+};
+
+// Get and store user-specific active trades
+export const getAndStoreUserActiveTrades = async () => {
+  try {
+    // Get user info
+    const userInfo = await retrieveData('user_info');
+    if (!userInfo?.uid) {
+      console.log('No user ID found');
+      return [];
+    }
+
+    // Get all active trades first
+    const allTrades = await getAndStoreActiveTrades();
+    if (!allTrades || allTrades.length === 0) return [];
+
+    // Filter trades for current user
+    const userTrades = allTrades.filter(trade => 
+      trade.usersList && Array.isArray(trade.usersList) && trade.usersList.includes(userInfo.uid)
+    );
+    
+    // Store processed data
+    const processedTrades = batchProcessTimestamps(userTrades, true);
+
+    // Store user-specific trades
+    await storeData('userActiveTrades', processedTrades);
+
+    return processedTrades;
+  } catch (error) {
+    return handleError('getAndStoreUserActiveTrades', error) || [];
+  }
+};
+
+export const getStoredActiveTrades = async () => {
+  const data = await retrieveData('activeTrades');
+  return data ? data.map(item => processTimestamps(item, false)) : null;
+};
+
+// Get user-specific active trades
+export const getStoredUserActiveTrades = async () => {
+  try {
+    const userInfo = await retrieveData('user_info');
+    if (!userInfo?.uid) return null;
+    
+    const activeTrades = await getStoredActiveTrades();
+    if (!activeTrades) return null;
+    
+    // Filter trades for this user
+    return activeTrades.filter(trade => 
+      (trade.usersList || []).includes(userInfo.uid)
+    );
+  } catch (error) {
+    return handleError('getStoredUserActiveTrades', error);
+  }
+};
+
+// Optimized stock snapshots handling
+export const getAndStoreStockSnapshots = async () => {
+  try {
+    // Check for updates
+    const shouldUpdate = await updateCollectionIfNeeded('stockSnapshot', async () => true);
+    console.log('Should update stock snapshots:', shouldUpdate);
+    if (!shouldUpdate) {
+      return await retrieveData('stockSnapshots');
+    }
+    
+    // Fetch from Firestore
+    console.log('Fetching stock snapshots from Firestore');
+    const stockSnapshotSnapshot = await getDocs(
+      query(collection(db, "stockSnapshot"), where("symbol", "==", "ALL"))
+    );
+    
+    if (stockSnapshotSnapshot.empty) return null;
+    
+    const stockSnapshot = stockSnapshotSnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }))[0];
+    
+    // Process and store
+    const processedData = processTimestamps(stockSnapshot, true);
+    await storeData('stockSnapshots', processedData);
+    
+    return processedData;
+  } catch (error) {
+    return handleError('getAndStoreStockSnapshots', error);
+  }
+};
+
+// User-specific data management (stats and preferences)
+export const getAndStoreUserStats = async () => {
+  try {
+    const userInfo = await retrieveData('user_info');
+    if (!userInfo?.uid) return null;
+    
+    // Check for updates
+    const shouldUpdate = await updateCollectionIfNeeded('userStats', async () => true);
+    if (!shouldUpdate) {
+      return await retrieveData('userStats');
+    }
+    
+    // Fetch from Firestore
+    console.log(`Fetching user stats for user ${userInfo.uid}`);
+    const userStatsSnapshot = await getDocs(
+      query(collection(db, "userStats"), where("userID", "==", userInfo.uid))
+    );
+    
+    if (userStatsSnapshot.empty) return null;
+    
+    // Process data
+    const userStatsData = userStatsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    
+    const processedData = batchProcessTimestamps(userStatsData, true);
+    await storeData('userStats', processedData);
+    
+    return processedData;
+  } catch (error) {
+    return handleError('getAndStoreUserStats', error);
+  }
+};
+
+// Consolidated utility functions
+export const getAllUserCachedData = async () => {
+  try {
+    // Fetch all data in parallel
+    const results = await Promise.all([
+      getStoredUserStats(),
       getStoredActiveTrades(),
-      getStoredStockSnapshots(),
+      retrieveData('stockSnapshots'),
       getStoredStockHistory()
     ]);
     
     return {
-      userPref,
-      userStats,
-      activeTrades,
-      stockSnapshots,
-      stockHistory
+      userStats: results[0],
+      activeTrades: results[1],
+      stockSnapshots: results[2],
+      stockHistory: results[3]
     };
   } catch (error) {
-    console.error(`Error retrieving all cached data for user ${userId}:`, error);
-    return null;
+    return handleError('getAllUserCachedData', error);
   }
 };
 
-// Clear all cached data (useful for logout)
 export const clearAllCachedData = async () => {
   try {
     await Preferences.clear();
@@ -650,6 +608,3 @@ export const clearAllCachedData = async () => {
     return false;
   }
 };
-
-// // Import needed for 'limit' if not already imported
-// import { limit } from "firebase/firestore";

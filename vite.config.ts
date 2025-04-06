@@ -14,5 +14,10 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/setupTests.ts',
+  },
+  resolve: {
+    alias: {
+      '@codetrix-studio/capacitor-google-auth': '@codetrix-studio/capacitor-google-auth'
+    }
   }
 })

@@ -100,21 +100,24 @@ const StockCard = ({ StockData }) => {
 
   const handleGoogleSignIn = async () => {
     console.log("Signing in with Google");
-    await signInWithGoogle().then(() => {
-      console.log("User signed in with Google");
-      history.push('/verify-profile');
+    await signInWithGoogle().then((res) => {
+      console.log("User signed in with Google", res);
+      if(res === 1){
+        history.push('/userHomePage');
+      }else{
+        history.push('/verify-profile');
+      }
       setShowActionSheet(false);
     });
   };
   const handleNavigate = (symbol) => {
     const dataToPass = { key: symbol };
-    console.log(dataToPass);
     history.push({
       pathname: '/TradeHistory',
       state: dataToPass,
     });
   };
-
+// console.log('StockData', stockDisplayValue, moment(stockDisplayValue.detected_at).format('MMM DD HH:mm'));
   return (
     <IonCard className="stock-card">
       <IonCardContent>
@@ -139,7 +142,7 @@ const StockCard = ({ StockData }) => {
         <div className="stock-info">
           <IonProgressBar style={{ 'marginRight': '10px' }} value={stockDisplayValue.strength / 100} color="primary" ></IonProgressBar>
           <div className="stock-info-details">
-          <IonText className="stock-details-note">Last <span className="stock-details-note-highlight">{stockDisplayValue.method}</span> Trade Signal detected at <span className="stock-details-note-highlight">{moment(stockDisplayValue?.detected_atDate)?.format('MMM DD HH:mm')}</span> </IonText> 
+          <IonText className="stock-details-note">Last <span className="stock-details-note-highlight">{stockDisplayValue.method}</span> Trade Signal detected at <span className="stock-details-note-highlight">{moment(stockDisplayValue?.detected_at)?.format('MMM DD HH:mm')}</span> </IonText> 
 
             <div color="dark" className="stock-details">
               <IonText className="stock-details-header"># of Trades:</IonText>

@@ -14,6 +14,7 @@ import {
 import { logoApple, arrowUp, arrowDown, statsChartOutline, logoGoogle, trendingDown, trendingUp } from "ionicons/icons";
 import "./UserStockCard.css"; // We'll create this CSS file next
 import { useHistory } from "react-router-dom";
+import { retrieveData } from "../../utils/preferences";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { auth } from "../../firebaseConfig"; // Adjust the import path as needed
 import { db } from "../../firebaseConfig";
@@ -24,7 +25,18 @@ import LoginPage from "../login";
 
 const UserStockCard = ({ StockData }) => {
 
-  const [user] = useAuthState(auth);
+  // const [user] = useAuthState(auth);
+  const [uid, setUid] = useState(null);
+
+  useEffect(() => {
+    const loadUid = async () => {
+      const { uid } = await retrieveData('user_info');
+      if (uid) {
+        setUid(uid);
+      }
+    };
+    loadUid();
+  }, []);
   const history = useHistory();
   const [presentAlert] = useIonAlert();
   const [showActionSheet, setShowActionSheet] = useState(false);
@@ -41,6 +53,11 @@ const UserStockCard = ({ StockData }) => {
   const PrevDailyBarValue = (((PreCurrentPrice - PrevOpenPrice) / PreCurrentPrice) * 100).toFixed(2);
   const PrevisPositive = PrevDailyBarValue >= 0;
   const stockDisplayValue = StockData.stockDisplay[0];
+  let investedValue = 0;
+  if(StockData?.stockDisplay[0].users){
+    investedValue = StockData?.stockDisplay?.[0]?.users.filter(user => user.userID === uid)[0]?.stakePrice || 0;
+  }
+  // console.log(stockDisplayValue);
   // const stockDisplayActiveValue = StockData?.filteredActiveTrade?.[0] || {};
   const handleAction = (type) => {
 
@@ -56,7 +73,6 @@ const UserStockCard = ({ StockData }) => {
   };
   const handleNavigate = (symbol) => {
     const dataToPass = { key: symbol };
-    console.log(dataToPass);
     history.push({
       pathname: '/TradeHistory',
       state: dataToPass,
@@ -86,11 +102,11 @@ const UserStockCard = ({ StockData }) => {
         <div className="stock-info">
         <IonText color="dark" className="stock-title">
             <h6>Invested $</h6>
-            <h4 style={{ fontSize: '16px', fontWeight: '700' }}>{stockDisplayValue.stakePrice}</h4>
+            <h4 style={{ fontSize: '16px', fontWeight: '700' }}>{investedValue.toFixed(2)}</h4>
           </IonText>
           <IonProgressBar style={{ 'marginRight': '10px' }} value={stockDisplayValue.strength / 100} color="primary" ></IonProgressBar>
           <div className="stock-info-details">
-          <IonText className="stock-details-note">Last <span className="stock-details-note-highlight">{stockDisplayValue.method}</span> Trade Signal detected at <span className="stock-details-note-highlight">{moment(stockDisplayValue?.detected_atDate)?.format('MMM DD HH:mm')}</span> </IonText> 
+          <IonText className="stock-details-note">Last <span className="stock-details-note-highlight">{stockDisplayValue.method}</span> Trade Signal detected at <span className="stock-details-note-highlight">{moment(stockDisplayValue?.detected_at)?.format('MMM DD HH:mm')}</span> </IonText> 
           <div color="dark" className="stock-details">
               <IonText className="stock-details-header"># of Trades:</IonText>
               <IonText className="stock-details-value">{NoOfTrades}</IonText>

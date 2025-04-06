@@ -1,7 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">EvAllGo</string>
-    <string name="title_activity_main">EvAllGo</string>
-    <string name="package_name">io.ionic.starter</string>
-    <string name="custom_url_scheme">io.ionic.starter</string>
+    <string name="app_name">Ev-Algo Trades</string>
+    <string name="title_activity_main">Ev-Algo Trades</string>
+    <string name="package_name">com.matheval.trades</string>
+    <string name="custom_url_scheme">com.matheval.trades</string>
+    <string name="server_client_id">703086075500-1kmjmfnan0f2c3j6j68590j59i6bta2s.apps.googleusercontent.com</string>
 </resources>

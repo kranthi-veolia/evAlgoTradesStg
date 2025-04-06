@@ -72,12 +72,20 @@ const ProfilePage = (props) => {
           console.error('Error fetching user status:', error);
         }
       };
-  
       fetchCustomUser();
     }, [user]);
   if (loading) {
     return <Loader />;
   }
+  const handleLogIn = async () => {
+    try {
+      await signInWithGoogle();
+    }catch (error) {
+      console.error('Error signing in:', error);
+    } finally {
+      history.push('/home');
+    }
+  };
   const handleLogout = async () => {
     try {
       if (Capacitor.isNativePlatform()) {
@@ -87,7 +95,6 @@ const ProfilePage = (props) => {
         // Sign out from web Firebase
         await auth.signOut();
       }
-      
       // Clear stored user data
       await clearAuthData();
       history.push('/home');
@@ -96,9 +103,6 @@ const ProfilePage = (props) => {
       console.error('Error signing out:', error);
       throw error;
     }
-    // await auth.signOut().then(() => {
-    //   history.push('/home');
-    // });
   };
   return (
     <IonPage>
@@ -116,16 +120,18 @@ const ProfilePage = (props) => {
         </IonToolbar>
       </IonHeader>
       <IonContent className="ion-padding">
-        <div className="ion-text-center">
-          <IonAvatar style={{ width: '80px', height: '80px', margin: '0 auto' }}>
+        <div className="ion-text-center" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', alignContent: 'center', justifyContent: 'center' }}>
+          <IonAvatar style={{ width: '80px', height: '80px' }}>
             <img src={user ? user.photoURL : "https://gravatar.com/avatar/dba6bae8c566f9d4041fb9cd9ada7741?d=identicon&f=y"} alt="Profile" />
           </IonAvatar>
-          <h2>{user?.displayName || 'Jhone Doe'}</h2>
-          <p>{user?.email || 'jhonedoe@gmail.com'}</p>
+          <div>
+            <h2>{user?.displayName || 'Jhone Doe'}</h2>
+            <p>{user?.email || 'jhonedoe@gmail.com'}</p>
+          </div>
           {/* <IonButton routerLink="/edit-profile">Edit Profile</IonButton> */}
         </div>
         {user === null ? <IonList>
-          <IonItem button onClick={() => signInWithGoogle()}>
+          <IonItem button onClick={handleLogIn}>
             <IonIcon icon={logoGoogle} slot="start" />
             <IonLabel>Sign with Google</IonLabel>
           </IonItem>

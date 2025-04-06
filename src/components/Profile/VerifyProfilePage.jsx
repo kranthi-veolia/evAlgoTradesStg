@@ -38,7 +38,6 @@ const VerifyProfilePage = () => {
   const [toastMessage, setToastMessage] = useState("");
   const history = useHistory();
   useEffect(() => {
-    console.log('user:', user);
     if (!user) {
       // history.push("/profile");
     } else {
@@ -46,7 +45,6 @@ const VerifyProfilePage = () => {
       const fetchUserData = async () => {
         const docRef = doc(db, 'customUser', user.uid);
         const docSnap = await getDoc(docRef);
-        console.log('docSnap:', docSnap.data());
         setEmail(user.email);
         setUserName(user.displayName);
         setAddress(docSnap.data()?.address || '');

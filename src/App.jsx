@@ -37,7 +37,10 @@ import { collection, query, getDoc, orderBy, where, doc } from "firebase/firesto
 import { StatusBar } from '@capacitor/status-bar';
 import Loader from './pages/Loader';
 import { checkAuthState } from './utils/storage';
-import { getStoredApprovalStatus, setStoredApprovalStatus, getAndStoreCustomUser } from './utils/preferences';
+import { getStoredApprovalStatus, setStoredApprovalStatus, getAndStoreCustomUser, getAndStoreLastUpdatedAt } from './utils/preferences';
+import PrivacyPolicy from './pages/privacy_policy';
+import TermsAndConditions from './pages/terms&conditions';
+import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
 /* Core CSS required for Ionic components to work properly */
 import '@ionic/react/css/core.css';
 
@@ -69,21 +72,23 @@ import '@ionic/react/css/display.css';
 import './theme/variables.css';
 
 setupIonicReact();
-
+getAndStoreLastUpdatedAt();
 const App = () => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [customUser, setCustomUser] = useState(0);
-
+  useEffect(() => {
+    // Initialize the Google Auth plugin
+    GoogleAuth.initialize();
+  }, []);
   useEffect(() => {
     // Combine status bar setup with auth check
     const initialize = async () => {
       try {
+        // await getAndStoreLastUpdatedAt();
         // Run status bar and auth checks in parallel
         const [userInfo] = await Promise.all([
           checkAuthState(),
-          // StatusBar.setStyle({ style: '#ffffff' }),
-          // StatusBar.setBackgroundColor({ color: '#000000' })
         ]);
         setUser(userInfo);
       } catch (error) {
@@ -103,7 +108,7 @@ const App = () => {
       try {
         // Check stored preferences first
         const storedStatus = await getStoredApprovalStatus();
-        console.log('Stored status:', storedStatus);
+        // console.log('Stored status:', storedStatus);
         
         if (storedStatus !== null) {
           setCustomUser(storedStatus);
@@ -140,6 +145,8 @@ const App = () => {
           <Route path="/verify-profile" render={()=> <VerifyProfilePage/>} exact />
           <Route path="/StockPicking" render={()=> <StockPicking/>} exact />
           <Route path="/TradeHistory" render={()=> <TradeHistory/>} exact />
+          <Route path="/PrivacyPolicy" render={()=> <PrivacyPolicy/>} exact />
+          <Route path="/TermsAndConditions" render={()=> <TermsAndConditions/>} exact />
           <Route exact path="/">
             {customUser === 0 && <Redirect to="/home" />}
             {customUser === 1 && <Redirect to="/userHomePage" />}
